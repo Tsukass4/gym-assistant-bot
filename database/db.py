@@ -93,3 +93,77 @@ def get_recent_tickets(limit: int = 5):
     """, (limit,)).fetchall()
     conn.close()
     return [dict(t) for t in tickets]
+def get_member_by_name(name: str):
+    """Busca un cliente por nombre (búsqueda parcial)."""
+    conn = get_connection()
+    members = conn.execute(
+        "SELECT * FROM members WHERE name LIKE ?", (f'%{name}%',)
+    ).fetchall()
+    conn.close()
+    return [dict(m) for m in members]
+
+def get_expired_memberships():
+    """Obtiene todos los clientes con membresía vencida."""
+    conn = get_connection()
+    expired = conn.execute("""
+        SELECT m.name, m.phone, mem.end_date, p.name as plan_name
+        FROM members m
+        JOIN memberships mem ON m.id = mem.member_id
+        JOIN plans p ON mem.plan_id = p.id
+        WHERE mem.is_active = 0
+        ORDER BY mem.end_date DESC
+    """).fetchall()
+    conn.close()
+    return [dict(e) for e in expired]
+
+def get_plan_by_id(plan_id: int):
+    """Obtiene un plan por su ID."""
+    conn = get_connection()
+    plan = conn.execute(
+        "SELECT * FROM plans WHERE id = ?", (plan_id,)
+    ).fetchone()
+    conn.close()
+    return dict(plan) if plan else None
+
+def update_ticket_status(ticket_id: int, status: str):
+    """Actualiza el estado de un ticket (ABIERTO, EN_PROCESO, CERRADO)."""
+    conn = get_connection()
+    conn.execute(
+        "UPDATE tickets SET status = ? WHERE id = ?",
+        (status, ticket_id)
+    )
+    conn.commit()
+    conn.close()
+
+def get_conversation_logs(limit: int = 10):
+    """Obtiene los últimos logs de conversación."""
+    conn = get_connection()
+    logs = conn.execute("""
+        SELECT * FROM conversation_logs
+        ORDER BY created_at DESC LIMIT ?
+    """, (limit,)).fetchall()
+    conn.close()
+    return [dict(l) for l in logs]
+
+def get_member_stats():
+    """Estadísticas generales para el panel del staff."""
+    conn = get_connection()
+    total = conn.execute(
+        "SELECT COUNT(*) as total FROM members"
+    ).fetchone()['total']
+    active = conn.execute(
+        "SELECT COUNT(*) as total FROM memberships WHERE is_active = 1"
+    ).fetchone()['total']
+    expired = conn.execute(
+        "SELECT COUNT(*) as total FROM memberships WHERE is_active = 0"
+    ).fetchone()['total']
+    open_tickets = conn.execute(
+        "SELECT COUNT(*) as total FROM tickets WHERE status = 'ABIERTO'"
+    ).fetchone()['total']
+    conn.close()
+    return {
+        'total_members': total,
+        'active_memberships': active,
+        'expired_memberships': expired,
+        'open_tickets': open_tickets
+    }
