@@ -1,5 +1,4 @@
 from langchain_community.llms import Ollama
-from langchain_core.prompts import PromptTemplate
 from config import OLLAMA_MODEL, OLLAMA_BASE_URL, GYM_NAME, AGENT1_SYSTEM_PROMPT
 from database.db import (
     get_member_by_phone,
@@ -9,7 +8,6 @@ from database.db import (
 )
 import json
 
-# Inicializar el LLM
 llm = Ollama(
     model=OLLAMA_MODEL,
     base_url=OLLAMA_BASE_URL,
@@ -25,7 +23,6 @@ INTENTS = [
 ]
 
 def detect_intent(message: str) -> dict:
-    """Detecta la intención del mensaje del cliente."""
     prompt = f"""Analiza este mensaje de un cliente de gimnasio y clasifícalo.
 
 Mensaje: "{message}"
@@ -66,27 +63,17 @@ Responde ÚNICAMENTE con JSON válido:
         }
 
 def extract_phone(message: str) -> str | None:
-    """Extrae un número de teléfono del mensaje si existe."""
     import re
     phones = re.findall(r'\b\d{10}\b', message)
     return phones[0] if phones else None
 
 def handle_nuevo_informe() -> dict:
-    """
-    Maneja la intención NUEVO_INFORME.
-    Obtiene todos los planes de la BD y los formatea.
-    """
     plans = get_all_plans()
     plans_text = "\n".join([
         f"- {p['name']}: ${p['price']:.2f} ({p['duration_days']} días) — {p['description']}"
         for p in plans
     ])
-    
-    context = {
-        "plans": plans,
-        "plans_text": plans_text
-    }
-    
+
     prompt = f"""Eres la recepcionista de {GYM_NAME}.
 Un cliente nuevo está pidiendo informes sobre precios y planes.
 
@@ -100,20 +87,15 @@ Sé breve y usa un tono amigable. Responde en español."""
     response = llm.invoke(prompt)
     return {
         "response": response.strip(),
-        "context": context,
+        "context": {"plans": plans, "plans_text": plans_text},
         "rule_applied": "R1: cliente_nuevo → mostrar_planes",
         "requires_human": False
     }
 
 def handle_consulta_membresia(message: str, phone: str = None) -> dict:
-    """
-    Maneja la intención CONSULTA_MEMBRESIA.
-    Busca al cliente por teléfono y consulta su membresía.
-    """
-    # Si no tenemos teléfono, pedirlo
     if not phone:
         phone = extract_phone(message)
-    
+
     if not phone:
         return {
             "response": f"¡Hola! Para consultar tu membresía necesito tu número de teléfono de 10 dígitos con el que estás registrado en {GYM_NAME}. ¿Me lo puedes proporcionar?",
@@ -121,8 +103,7 @@ def handle_consulta_membresia(message: str, phone: str = None) -> dict:
             "rule_applied": "R2a: consulta_membresia → solicitar_telefono",
             "requires_human": False
         }
-    
-    # Buscar cliente
+
     member = get_member_by_phone(phone)
     if not member:
         return {
@@ -131,10 +112,9 @@ def handle_consulta_membresia(message: str, phone: str = None) -> dict:
             "rule_applied": "R2b: telefono_no_encontrado → sugerir_verificar",
             "requires_human": False
         }
-    
-    # Buscar membresía activa
+
     membership = get_active_membership(member['id'])
-    
+
     if not membership:
         prompt = f"""Eres la recepcionista de {GYM_NAME}.
 El socio {member['name']} no tiene membresía activa en este momento.
@@ -147,10 +127,9 @@ Menciona que puede pasar al gimnasio o contactar al staff para renovar. Responde
             "rule_applied": "R2c: membresia_inactiva → ofrecer_renovacion",
             "requires_human": False
         }
-    
+
     days = days_until_expiry(membership['end_date'])
-    
-    # Regla: membresía por vencer (menos de 7 días)
+
     if days <= 7 and days >= 0:
         rule = "R2d: membresia_por_vencer → recordatorio_urgente"
         urgency = f"⚠️ Tu membresía vence en {days} días"
@@ -185,10 +164,6 @@ Si está por vencer o vencida, invítalo a renovar. Responde en español."""
     }
 
 def handle_problema(message: str, intent: str) -> dict:
-    """
-    Maneja PROBLEMA_APP y PROBLEMA_ACCESO.
-    Registra el problema y prepara datos para el Agente 2.
-    """
     if intent == "PROBLEMA_APP":
         rule = "R3a: problema_app → registrar_ticket_normal"
         priority = "NORMAL"
@@ -219,7 +194,6 @@ dile que es prioritario y se atenderá de inmediato. Responde en español."""
     }
 
 def handle_otro(message: str) -> dict:
-    """Maneja intenciones no reconocidas."""
     prompt = f"""Eres la recepcionista de {GYM_NAME}.
 Un cliente envió este mensaje: "{message}"
 
@@ -237,25 +211,18 @@ o problemas de acceso. Pregunta en qué le puedes ayudar. Responde en español."
     }
 
 def process_message(message: str, phone: str = None) -> dict:
-    """
-    Función principal del Agente 1.
-    Recibe mensaje del cliente y devuelve respuesta + metadata.
-    """
     print(f"\n[Agente 1] 📨 Mensaje recibido: '{message}'")
 
-    # 1. Detectar intención
     intent_result = detect_intent(message)
     intent = intent_result.get('intent', 'OTRO')
     confidence = intent_result.get('confidence', 'BAJA')
     extracted = intent_result.get('extracted_data', {})
 
-    # Si el mensaje tiene teléfono, extraerlo
     if not phone and extracted.get('phone'):
         phone = extracted['phone']
 
     print(f"[Agente 1] 🎯 Intención: {intent} (confianza: {confidence})")
 
-    # 2. Enrutar según intención
     if intent == "NUEVO_INFORME":
         result = handle_nuevo_informe()
     elif intent == "CONSULTA_MEMBRESIA":
@@ -265,7 +232,6 @@ def process_message(message: str, phone: str = None) -> dict:
     else:
         result = handle_otro(message)
 
-    # 3. Agregar metadata
     result["intent"] = intent
     result["confidence"] = confidence
     result["extracted_data"] = extracted
