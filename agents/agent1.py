@@ -116,13 +116,8 @@ def handle_consulta_membresia(message: str, phone: str = None) -> dict:
     membership = get_active_membership(member['id'])
 
     if not membership:
-        prompt = f"""Eres la recepcionista de {GYM_NAME}.
-El socio {member['name']} no tiene membresía activa en este momento.
-Dile amablemente que su membresía no está activa y ofrécele opciones para renovar.
-Menciona que puede pasar al gimnasio o contactar al staff para renovar. Responde en español."""
-        response = llm.invoke(prompt)
         return {
-            "response": response.strip(),
+            "response": f"Hola {member['name']} 👋\n\nRevisé tu cuenta y actualmente **no tienes una membresía activa** en {GYM_NAME}.\n\nEstos son nuestros planes para renovar:\n💪 Mensual: $350\n📅 Trimestral: $900\n🗓️ Semestral: $1,600\n🏆 Anual: $2,800\n\nPuedes pasar al gimnasio o escribirnos para renovar. ¡Te esperamos!",
             "context": {"member": member, "membership": None},
             "rule_applied": "R2c: membresia_inactiva → ofrecer_renovacion",
             "requires_human": False
@@ -130,30 +125,36 @@ Menciona que puede pasar al gimnasio o contactar al staff para renovar. Responde
 
     days = days_until_expiry(membership['end_date'])
 
-    if days <= 7 and days >= 0:
-        rule = "R2d: membresia_por_vencer → recordatorio_urgente"
-        urgency = f"⚠️ Tu membresía vence en {days} días"
-    elif days < 0:
+    if days < 0:
         rule = "R2c: membresia_vencida → ofrecer_renovacion"
-        urgency = "❌ Tu membresía está vencida"
+        response = (
+            f"Hola {member['name']} 👋\n\n"
+            f"Tu membresía **{membership['plan_name']}** venció el {membership['end_date']}. "
+            f"❌ Ya no está activa.\n\n"
+            f"¿Te gustaría renovar? Puedes pasar al gimnasio o escribirnos. ¡Te esperamos!"
+        )
+    elif days <= 7:
+        rule = "R2d: membresia_por_vencer → recordatorio_urgente"
+        response = (
+            f"Hola {member['name']} 👋\n\n"
+            f"⚠️ Tu membresía **{membership['plan_name']}** vence en **{days} días** "
+            f"(el {membership['end_date']}).\n\n"
+            f"Te recomendamos renovar pronto para no perder tu acceso. "
+            f"¡Pasa al gimnasio o escríbenos!"
+        )
     else:
         rule = "R2e: membresia_activa → mostrar_estatus"
-        urgency = f"✅ Tu membresía está activa por {days} días más"
+        response = (
+            f"Hola {member['name']} 👋\n\n"
+            f"✅ Tu membresía está **activa**.\n\n"
+            f"📋 Plan: {membership['plan_name']}\n"
+            f"📅 Vence el: {membership['end_date']}\n"
+            f"⏳ Días restantes: {days}\n\n"
+            f"¡Sigue entrenando duro! 💪"
+        )
 
-    prompt = f"""Eres la recepcionista de {GYM_NAME}.
-Información del socio:
-- Nombre: {member['name']}
-- Plan actual: {membership['plan_name']}
-- Fecha de vencimiento: {membership['end_date']}
-- Días restantes: {days}
-- Estado: {urgency}
-
-Informa al socio sobre el estado de su membresía de forma amable.
-Si está por vencer o vencida, invítalo a renovar. Responde en español."""
-
-    response = llm.invoke(prompt)
     return {
-        "response": response.strip(),
+        "response": response,
         "context": {
             "member": member,
             "membership": membership,
@@ -210,9 +211,134 @@ o problemas de acceso. Pregunta en qué le puedes ayudar. Responde en español."
         "requires_human": False
     }
 
+SALUDOS = [
+    "hola", "buenos dias", "buenas tardes", "buenas noches",
+    "buen dia", "buenas", "hey", "hi", "hello", "que tal",
+    "como estan"
+]
+
+PALABRAS_INFORME = [
+    "precio", "precios", "costo", "costos", "plan", "planes",
+    "informes", "informe", "mensualidad", "anual", "trimestral",
+    "semestral", "inscripcion", "inscripción", "cuanto cuesta",
+    "cuánto cuesta", "cuanto vale", "información", "informacion",
+    "quiero saber", "tienen", "que planes", "qué planes"
+]
+
+PALABRAS_APP = [
+    "app", "aplicacion", "aplicación", "rutinas", "rutina",
+    "no carga", "no abre", "error", "no funciona la app",
+    "no puedo ver", "no me deja ver"
+]
+
+PALABRAS_ACCESO = [
+    "torniquete", "no puedo entrar", "no me deja entrar",
+    "acceso denegado", "no me abre", "puerta", "entrada",
+    "no entra", "codigo no funciona", "código no funciona"
+]
+
+def normalizar(text: str) -> str:
+    """Normaliza el texto para comparación."""
+    t = text.lower().strip()
+    for a, b in [("á","a"),("é","e"),("í","i"),("ó","o"),("ú","u"),("ü","u")]:
+        t = t.replace(a, b)
+    return t
+
+def is_greeting(message: str) -> bool:
+    clean = normalizar(message)
+    return any(clean == s or clean.startswith(s + " ") for s in SALUDOS)
+
+def detect_intent_manual(message: str) -> str | None:
+    """
+    Detecta intención con reglas manuales antes de llamar al LLM.
+    Devuelve la intención si la detecta, None si no está seguro.
+    """
+    clean = normalizar(message)
+
+    # Saludos simples
+    if is_greeting(message):
+        return "SALUDO"
+
+    # Problema de acceso físico
+    if any(p in clean for p in PALABRAS_ACCESO):
+        return "PROBLEMA_ACCESO"
+
+    # Problema con la app
+    if any(p in clean for p in PALABRAS_APP):
+        return "PROBLEMA_APP"
+
+    # Informes de precios
+    if any(p in clean for p in PALABRAS_INFORME):
+        return "NUEVO_INFORME"
+
+    # Teléfono de 10 dígitos solo
+    import re
+    if re.fullmatch(r'\d{10}', clean.replace(" ", "")):
+        return "CONSULTA_MEMBRESIA"
+
+    return None  # No detectado, usar LLM
+
 def process_message(message: str, phone: str = None) -> dict:
     print(f"\n[Agente 1] 📨 Mensaje recibido: '{message}'")
 
+    # Intentar detección manual primero
+    intent_manual = detect_intent_manual(message)
+
+    if intent_manual == "SALUDO":
+        print(f"[Agente 1] 🎯 Intención: OTRO (saludo manual)")
+        return {
+            "intent": "OTRO",
+            "confidence": "ALTA",
+            "extracted_data": {"phone": None, "name": None, "problem_description": None},
+            "original_message": message,
+            "response": f"¡Hola! Bienvenido a {GYM_NAME} 👋 ¿En qué te puedo ayudar hoy?\n\n• 💪 Precios y planes\n• 🏅 Consulta de membresía\n• 📱 Problemas con la app\n• 🚪 Problemas de acceso",
+            "context": {},
+            "rule_applied": "R0: saludo_detectado → bienvenida",
+            "requires_human": False
+        }
+
+    elif intent_manual == "NUEVO_INFORME":
+        print(f"[Agente 1] 🎯 Intención: NUEVO_INFORME (regla manual)")
+        result = handle_nuevo_informe()
+        result["intent"] = "NUEVO_INFORME"
+        result["confidence"] = "ALTA"
+        result["extracted_data"] = {"phone": None, "name": None, "problem_description": None}
+        result["original_message"] = message
+        print(f"[Agente 1] 📋 Regla aplicada: {result['rule_applied']}")
+        return result
+
+    elif intent_manual == "PROBLEMA_APP":
+        print(f"[Agente 1] 🎯 Intención: PROBLEMA_APP (regla manual)")
+        result = handle_problema(message, "PROBLEMA_APP")
+        result["intent"] = "PROBLEMA_APP"
+        result["confidence"] = "ALTA"
+        result["extracted_data"] = {"phone": None, "name": None, "problem_description": message}
+        result["original_message"] = message
+        print(f"[Agente 1] 📋 Regla aplicada: {result['rule_applied']}")
+        return result
+
+    elif intent_manual == "PROBLEMA_ACCESO":
+        print(f"[Agente 1] 🎯 Intención: PROBLEMA_ACCESO (regla manual)")
+        result = handle_problema(message, "PROBLEMA_ACCESO")
+        result["intent"] = "PROBLEMA_ACCESO"
+        result["confidence"] = "ALTA"
+        result["extracted_data"] = {"phone": None, "name": None, "problem_description": message}
+        result["original_message"] = message
+        print(f"[Agente 1] 📋 Regla aplicada: {result['rule_applied']}")
+        return result
+
+    elif intent_manual == "CONSULTA_MEMBRESIA":
+        print(f"[Agente 1] 🎯 Intención: CONSULTA_MEMBRESIA (regla manual)")
+        result = handle_consulta_membresia(message, message.strip())
+        result["intent"] = "CONSULTA_MEMBRESIA"
+        result["confidence"] = "ALTA"
+        result["extracted_data"] = {"phone": message.strip(), "name": None, "problem_description": None}
+        result["original_message"] = message
+        print(f"[Agente 1] 📋 Regla aplicada: {result['rule_applied']}")
+        return result
+
+    # Si no detectó nada manualmente, usar el LLM
+    print(f"[Agente 1] 🤖 Usando LLM para detectar intención...")
     intent_result = detect_intent(message)
     intent = intent_result.get('intent', 'OTRO')
     confidence = intent_result.get('confidence', 'BAJA')
