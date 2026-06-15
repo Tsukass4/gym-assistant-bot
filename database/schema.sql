@@ -60,12 +60,13 @@ CREATE TABLE IF NOT EXISTS conversation_logs (
 
 -- Planes del gimnasio
 INSERT INTO plans (name, duration_days, price, description) VALUES
-('Mensualidad', 30, 350.00, 'Acceso completo por 30 días'),
-('Trimestral', 90, 900.00, 'Acceso completo por 3 meses, ahorra $150'),
-('Semestral', 180, 1600.00, 'Acceso completo por 6 meses, ahorra $500'),
-('Anual', 365, 2800.00, 'Acceso completo por 1 año, ahorra $1400'),
-('Clases de spinning', 30, 200.00, 'Clases de spinning ilimitadas por mes'),
-('Entrenador personal', 30, 800.00, '8 sesiones con entrenador personal al mes');
+('Open Gym', 30, 1500.00, 'Acceso libre al gimnasio por 30 días'),
+('3 Meses', 90, 4800.00, 'Acceso completo por 3 meses'),
+('6 Meses', 180, 9000.00, 'Acceso completo por 6 meses'),
+('Mensualidad con Coach', 30, 1800.00, 'Acceso + entrenador personal por 30 días'),
+('10 Clases', 30, 1550.00, 'Paquete de 10 clases grupales'),
+('6 Clases', 30, 900.00, 'Paquete de 6 clases grupales'),
+('Clase Individual', 1, 270.00, 'Una clase grupal individual');
 
 -- Clientes de prueba
 INSERT INTO members (name, phone, email, join_date, is_active) VALUES

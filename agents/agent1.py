@@ -291,7 +291,7 @@ def process_message(message: str, phone: str = None) -> dict:
             "confidence": "ALTA",
             "extracted_data": {"phone": None, "name": None, "problem_description": None},
             "original_message": message,
-            "response": f"¡Hola! Bienvenido a {GYM_NAME} 👋 ¿En qué te puedo ayudar hoy?\n\n• 💪 Precios y planes\n• 🏅 Consulta de membresía\n• 📱 Problemas con la app\n• 🚪 Problemas de acceso",
+            "response": f"¡Hola! Bienvenido a {GYM_NAME} 👋 ¿En qué te puedo ayudar hoy?\n\n💪 **Precios y planes**\n\n🏅 **Consulta de membresía**\n\n📱 **Problemas con la app**\n\n🚪 **Problemas de acceso**",
             "context": {},
             "rule_applied": "R0: saludo_detectado → bienvenida",
             "requires_human": False
